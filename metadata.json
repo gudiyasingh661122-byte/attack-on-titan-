@@ -1,0 +1,6 @@
+{
+  "name": "SHŌT — Cinematic Attack on Titan Experience",
+  "description": "An interactive, video-synchronized Attack on Titan cinematic web experience and frontend portfolio showcase featuring a 5-phase real-time effect engine and concept store.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
