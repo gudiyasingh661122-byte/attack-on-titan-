@@ -3,18 +3,22 @@ import {
   computeCinematicState,
   ComputedCinematicState,
   ImpactTriggerTracker,
+  NavDestructionStage,
 } from '../timeline/timelineEngine';
 import { ImpactEvent } from '../../data/timelineEvents';
 
 /**
  * 1. LightingController
- * Controls ambient perimeter glow, radial iris pulse, Paths golden energy, and impact flashes via DOM refs + GSAP.
+ * Controls ambient perimeter glow, radial iris pulse, Paths golden energy, and impact flashes via cached DOM refs.
  */
 export class LightingController {
   private ambientEl: HTMLElement | null = null;
   private radialEl: HTMLElement | null = null;
   private flashEl: HTMLElement | null = null;
   private videoWrapperEl: HTMLElement | null = null;
+  private lastColor = '';
+  private lastSecondary = '';
+  private wasFlashActive = true;
 
   public bind(
     ambientEl: HTMLElement | null,
@@ -26,42 +30,51 @@ export class LightingController {
     this.radialEl = radialEl;
     this.flashEl = flashEl;
     this.videoWrapperEl = videoWrapperEl;
+    this.lastColor = '';
+    this.lastSecondary = '';
+    this.wasFlashActive = true;
   }
 
   public update(state: ComputedCinematicState) {
     if (this.ambientEl) {
       const { color, secondaryColor, intensity } = state.lighting;
-      this.ambientEl.style.opacity = String(Math.min(0.88, intensity * 0.85));
-      this.ambientEl.style.background = `radial-gradient(circle at 50% 50%, transparent 38%, ${color}44 74%, ${secondaryColor}88 100%)`;
+      this.ambientEl.style.opacity = (Math.min(0.88, intensity * 0.85)).toFixed(2);
+      if (color !== this.lastColor || secondaryColor !== this.lastSecondary) {
+        this.lastColor = color;
+        this.lastSecondary = secondaryColor;
+        this.ambientEl.style.background = `radial-gradient(circle at 50% 50%, transparent 40%, ${color}40 75%, ${secondaryColor}80 100%)`;
+      }
     }
 
     if (this.radialEl) {
-      const { radialPulse, eyeDistortion, color } = state.lighting;
-      const pulseScale = 1 + Math.sin(state.currentTime * 3.2) * 0.04 * radialPulse;
-      this.radialEl.style.opacity = String(
-        Math.max(radialPulse * 0.55, eyeDistortion * 0.45)
-      );
-      this.radialEl.style.transform = `scale(${pulseScale.toFixed(3)})`;
-      this.radialEl.style.boxShadow = `inset 0 0 ${Math.round(
-        90 + eyeDistortion * 80
-      )}px ${color}`;
+      const { radialPulse, eyeDistortion } = state.lighting;
+      const op = Math.max(radialPulse * 0.55, eyeDistortion * 0.45);
+      this.radialEl.style.opacity = op.toFixed(2);
+      if (op > 0.02) {
+        const pulseScale = 1 + Math.sin(state.currentTime * 3.2) * 0.035 * radialPulse;
+        this.radialEl.style.transform = `scale3d(${pulseScale.toFixed(3)}, ${pulseScale.toFixed(3)}, 1)`;
+      }
     }
 
     if (this.flashEl) {
-      this.flashEl.style.opacity = String(state.flashOpacity.toFixed(3));
-      this.flashEl.style.backgroundColor = state.flashColor;
+      if (state.flashOpacity > 0.005) {
+        this.wasFlashActive = true;
+        this.flashEl.style.opacity = state.flashOpacity.toFixed(3);
+        this.flashEl.style.backgroundColor = state.flashColor;
+      } else if (this.wasFlashActive) {
+        this.wasFlashActive = false;
+        this.flashEl.style.opacity = '0';
+      }
     }
 
     if (this.videoWrapperEl) {
       const zoom = state.lighting.cameraZoom;
-      const brightness = 1 + state.lighting.brightnessOffset;
       const { x, y, rotation } = state.shakeOffset;
       this.videoWrapperEl.style.transform = `translate3d(${x.toFixed(
-        2
-      )}px, ${y.toFixed(2)}px, 0) scale(${zoom.toFixed(
+        1
+      )}px, ${y.toFixed(1)}px, 0) scale3d(${zoom.toFixed(
         3
-      )}) rotate(${rotation.toFixed(2)}deg)`;
-      this.videoWrapperEl.style.filter = `brightness(${brightness.toFixed(2)})`;
+      )}, ${zoom.toFixed(3)}, 1) rotate(${rotation.toFixed(2)}deg)`;
     }
   }
 }
@@ -109,10 +122,14 @@ export class ScreenShakeController {
 export class LightningController {
   private svgGroupEl: SVGGElement | null = null;
   private pathsGroupEl: SVGGElement | null = null;
+  private wasLightningVisible = true;
+  private wasPathsVisible = true;
 
   public bind(svgGroupEl: SVGGElement | null, pathsGroupEl: SVGGElement | null) {
     this.svgGroupEl = svgGroupEl;
     this.pathsGroupEl = pathsGroupEl;
+    this.wasLightningVisible = true;
+    this.wasPathsVisible = true;
   }
 
   public update(state: ComputedCinematicState) {
@@ -121,14 +138,26 @@ export class LightningController {
         ? 0.65 + Math.abs(Math.sin(state.currentTime * 42)) * 0.35
         : 0;
       const opacity = state.lightning.intensity * flicker;
-      this.svgGroupEl.style.opacity = String(opacity.toFixed(3));
+      if (opacity > 0.005) {
+        this.wasLightningVisible = true;
+        this.svgGroupEl.style.opacity = opacity.toFixed(3);
+      } else if (this.wasLightningVisible) {
+        this.wasLightningVisible = false;
+        this.svgGroupEl.style.opacity = '0';
+      }
     }
 
     if (this.pathsGroupEl) {
       const pathsEnergy = state.lighting.pathsEnergy;
-      this.pathsGroupEl.style.opacity = String(pathsEnergy.toFixed(3));
-      const dashOffset = -(state.currentTime * 160) % 1000;
-      this.pathsGroupEl.style.strokeDashoffset = `${dashOffset.toFixed(1)}px`;
+      if (pathsEnergy > 0.005) {
+        this.wasPathsVisible = true;
+        this.pathsGroupEl.style.opacity = pathsEnergy.toFixed(3);
+        const dashOffset = -(state.currentTime * 160) % 1000;
+        this.pathsGroupEl.style.strokeDashoffset = `${dashOffset.toFixed(1)}px`;
+      } else if (this.wasPathsVisible) {
+        this.wasPathsVisible = false;
+        this.pathsGroupEl.style.opacity = '0';
+      }
     }
   }
 }
@@ -139,115 +168,221 @@ export class LightningController {
  */
 export class CrackController {
   private crackGroupEl: SVGGElement | null = null;
+  private wasVisible = true;
 
   public bind(crackGroupEl: SVGGElement | null) {
     this.crackGroupEl = crackGroupEl;
+    this.wasVisible = true;
   }
 
   public update(state: ComputedCinematicState) {
     if (!this.crackGroupEl) return;
-    const { intensity, glowColor } = state.cracks;
-    this.crackGroupEl.style.opacity = String(intensity.toFixed(3));
-    this.crackGroupEl.style.filter =
-      intensity > 0.2 ? `drop-shadow(0 0 8px ${glowColor})` : 'none';
+    const { intensity } = state.cracks;
+    if (intensity > 0.005) {
+      this.wasVisible = true;
+      this.crackGroupEl.style.opacity = intensity.toFixed(3);
+    } else if (this.wasVisible) {
+      this.wasVisible = false;
+      this.crackGroupEl.style.opacity = '0';
+    }
   }
 }
 
 /**
+ * Pre-cached DOM references for each navigation box so zero querySelector calls occur during playback.
+ */
+interface CachedNavBoxDom {
+  wrapperEl: HTMLElement;
+  intactBtnEl: HTMLElement | null;
+  crackSvgEl: SVGSVGElement | null;
+  fragContainerEl: HTMLElement | null;
+  fragNodes: HTMLElement[];
+  lastStage: NavDestructionStage | '';
+  lastIntactOpacity: number;
+  lastFragContainerVisible: boolean | null;
+  fragHiddenFlags: boolean[];
+}
+
+/**
  * 5. NavigationAnimationController
- * Keeps floating navigation 100% visible from frame 0.0s, drives Stage A surface cracks (37.0s-40.5s),
- * and updates all 22 physical polygonal fragments per box at 60fps during Stage B/C/D (40.5s-80.0s).
+ * High-performance zero-querySelector controller.
+ * Caches all box & fragment DOM nodes once on bind(), skips untouched/completed nodes,
+ * and uses strictly compositor-only `transform` and `opacity` updates.
  */
 export class NavigationAnimationController {
   private containerEl: HTMLElement | null = null;
   private shardEls: HTMLElement[] = [];
+  private cachedBoxes: CachedNavBoxDom[] = [];
+  private lastDestructionStage = '';
+  private lastBorderGlow = '';
 
   public bind(containerEl: HTMLElement | null, shardEls: HTMLElement[]) {
     this.containerEl = containerEl;
     this.shardEls = shardEls;
+    this.cachedBoxes = [];
+    this.lastDestructionStage = '';
+    this.lastBorderGlow = '';
+
+    if (!containerEl) return;
+
+    for (let i = 0; i < 5; i++) {
+      const wrapperEl = containerEl.querySelector<HTMLElement>(
+        `[data-nav-box-wrapper="${i}"]`
+      );
+      if (!wrapperEl) continue;
+
+      const intactBtnEl = wrapperEl.querySelector<HTMLElement>(
+        '[data-nav-intact-btn]'
+      );
+      const crackSvgEl = wrapperEl.querySelector<SVGSVGElement>(
+        '[data-nav-crack-svg]'
+      );
+      const fragContainerEl = wrapperEl.querySelector<HTMLElement>(
+        '[data-nav-frag-container]'
+      );
+      const fragNodeList = fragContainerEl
+        ? Array.from(
+            fragContainerEl.querySelectorAll<HTMLElement>('[data-frag-index]')
+          )
+        : [];
+
+      this.cachedBoxes.push({
+        wrapperEl,
+        intactBtnEl,
+        crackSvgEl,
+        fragContainerEl,
+        fragNodes: fragNodeList,
+        lastStage: '',
+        lastIntactOpacity: -1,
+        lastFragContainerVisible: null,
+        fragHiddenFlags: new Array(fragNodeList.length).fill(false),
+      });
+    }
+  }
+
+  public resetCacheFlags() {
+    this.lastDestructionStage = '';
+    this.lastBorderGlow = '';
+    for (const box of this.cachedBoxes) {
+      box.lastStage = '';
+      box.lastIntactOpacity = -1;
+      box.lastFragContainerVisible = null;
+      box.fragHiddenFlags.fill(false);
+    }
   }
 
   public update(state: ComputedCinematicState) {
     if (!this.containerEl) return;
-    const { borderGlow, cracked, destructionStage, boxes } = state.navigation;
+    const { borderGlow, destructionStage, boxes } = state.navigation;
 
-    // Navigation container is always visible from the very first frame
-    this.containerEl.style.opacity = '1';
-    this.containerEl.style.pointerEvents =
-      destructionStage === 'intact' || destructionStage === 'cracking'
-        ? 'auto'
-        : 'none';
-    this.containerEl.setAttribute('data-glow', borderGlow);
-    this.containerEl.setAttribute('data-cracked', cracked ? 'true' : 'false');
-    this.containerEl.setAttribute('data-destruction-stage', destructionStage);
+    if (destructionStage !== this.lastDestructionStage) {
+      this.lastDestructionStage = destructionStage;
+      this.containerEl.setAttribute('data-destruction-stage', destructionStage);
+      this.containerEl.style.pointerEvents =
+        destructionStage === 'intact' || destructionStage === 'cracking'
+          ? 'auto'
+          : 'none';
+    }
 
-    // High-frequency 60fps DOM updates for each navigation box and its 22 polygonal fragments
-    for (let i = 0; i < boxes.length; i++) {
+    if (borderGlow !== this.lastBorderGlow) {
+      this.lastBorderGlow = borderGlow;
+      this.containerEl.setAttribute('data-glow', borderGlow);
+    }
+
+    const degToRad = 0.017453292519943295;
+
+    for (let i = 0; i < this.cachedBoxes.length; i++) {
+      const cache = this.cachedBoxes[i];
       const boxState = boxes[i];
-      const boxWrapper = this.containerEl.querySelector<HTMLElement>(
-        `[data-nav-box-wrapper="${i}"]`
-      );
-      if (!boxWrapper) continue;
+      if (!cache || !boxState) continue;
 
-      boxWrapper.setAttribute('data-box-stage', boxState.stage);
+      // Update stage attribute only when changed
+      if (boxState.stage !== cache.lastStage) {
+        cache.lastStage = boxState.stage;
+        cache.wrapperEl.setAttribute('data-box-stage', boxState.stage);
 
-      const intactBtn = boxWrapper.querySelector<HTMLElement>(
-        '[data-nav-intact-btn]'
-      );
-      if (intactBtn) {
-        intactBtn.style.opacity = String(boxState.intactBoxOpacity);
-        intactBtn.style.pointerEvents =
-          boxState.intactBoxOpacity > 0.5 ? 'auto' : 'none';
-
-        if (boxState.stage === 'cracking') {
-          const { x, y, rot } = boxState.crackTremorOffset;
-          intactBtn.style.transform = `translate3d(${x.toFixed(
-            2
-          )}px, ${y.toFixed(2)}px, 0) rotate(${rot.toFixed(2)}deg)`;
-        } else if (boxState.stage === 'intact') {
-          intactBtn.style.transform = '';
+        if (cache.intactBtnEl && boxState.stage === 'intact') {
+          cache.intactBtnEl.style.transform = '';
+        }
+        if (cache.crackSvgEl && boxState.stage === 'intact') {
+          cache.crackSvgEl.style.opacity = '0';
         }
       }
 
-      // Stage A Crack SVG inside intact button
-      const crackSvg = boxWrapper.querySelector<SVGSVGElement>(
-        '[data-nav-crack-svg]'
-      );
-      if (crackSvg) {
-        crackSvg.style.opacity =
-          boxState.crackProgress > 0
-            ? String(Math.min(1, boxState.crackProgress * 1.15).toFixed(3))
-            : '0';
-        const dashOffset = (1 - boxState.crackProgress) * 140;
-        crackSvg.style.strokeDashoffset = `${dashOffset.toFixed(1)}px`;
+      // 1. Intact / Cracking Button State
+      if (cache.intactBtnEl) {
+        if (boxState.intactBoxOpacity !== cache.lastIntactOpacity) {
+          cache.lastIntactOpacity = boxState.intactBoxOpacity;
+          cache.intactBtnEl.style.opacity = String(boxState.intactBoxOpacity);
+          cache.intactBtnEl.style.pointerEvents =
+            boxState.intactBoxOpacity > 0.5 ? 'auto' : 'none';
+        }
+
+        if (boxState.stage === 'cracking') {
+          const { x, y, rot } = boxState.crackTremorOffset;
+          cache.intactBtnEl.style.transform = `translate3d(${x.toFixed(
+            1
+          )}px, ${y.toFixed(1)}px, 0) rotate(${rot.toFixed(2)}deg)`;
+        }
       }
 
-      // Stage B, C, D Physical Polygonal Fragments
-      const fragContainer = boxWrapper.querySelector<HTMLElement>(
-        '[data-nav-frag-container]'
-      );
-      if (fragContainer) {
-        fragContainer.style.opacity = boxState.fragmentsVisible ? '1' : '0';
+      // 2. Stage A Spreading Cracks SVG (Only updated during 'cracking' stage 37.0s - 40.5s)
+      if (cache.crackSvgEl && boxState.stage === 'cracking') {
+        cache.crackSvgEl.style.opacity = Math.min(
+          1,
+          boxState.crackProgress * 1.15
+        ).toFixed(2);
+        const dashOffset = (1 - boxState.crackProgress) * 140;
+        cache.crackSvgEl.style.strokeDashoffset = `${dashOffset.toFixed(1)}px`;
+      }
+
+      // 3. Stage B, C, D Physical Polygonal Fragments (Active ONLY when fragmentsVisible is true)
+      if (cache.fragContainerEl) {
+        if (boxState.fragmentsVisible !== cache.lastFragContainerVisible) {
+          cache.lastFragContainerVisible = boxState.fragmentsVisible;
+          if (boxState.fragmentsVisible) {
+            cache.fragContainerEl.style.display = 'block';
+            cache.fragContainerEl.style.opacity = '1';
+          } else {
+            cache.fragContainerEl.style.display = 'none';
+            cache.fragContainerEl.style.opacity = '0';
+          }
+        }
+
         if (boxState.fragmentsVisible) {
-          const fragNodes =
-            fragContainer.querySelectorAll<HTMLElement>('[data-frag-index]');
+          const fragNodes = cache.fragNodes;
+          const frags = boxState.fragments;
+          const hiddenFlags = cache.fragHiddenFlags;
+
           for (let f = 0; f < fragNodes.length; f++) {
-            const node = fragNodes[f];
-            const ft = boxState.fragments[f];
+            const ft = frags[f];
             if (!ft) continue;
-            if (ft.opacity <= 0.005) {
-              node.style.opacity = '0';
+
+            if (ft.opacity <= 0.008) {
+              // Skip DOM writes if this fragment is already marked hidden
+              if (!hiddenFlags[f]) {
+                hiddenFlags[f] = true;
+                fragNodes[f].style.opacity = '0';
+              }
             } else {
-              node.style.opacity = ft.opacity.toFixed(3);
+              hiddenFlags[f] = false;
+              const node = fragNodes[f];
+              // Simulate 3D paper-like tumbling via 2D foreshortened scaleX/scaleY to avoid
+              // expensive per-frame 3D perspective + clip-path re-rasterization in Chromium
+              const scaleX = (
+                ft.scale *
+                (0.32 + 0.68 * Math.abs(Math.cos(ft.rotY * degToRad)))
+              ).toFixed(2);
+              const scaleY = (
+                ft.scale *
+                (0.38 + 0.62 * Math.abs(Math.cos(ft.rotX * degToRad)))
+              ).toFixed(2);
+              node.style.opacity = ft.opacity.toFixed(2);
               node.style.transform = `translate3d(${ft.dx.toFixed(
                 1
-              )}px, ${ft.dy.toFixed(1)}px, 0) rotateX(${ft.rotX.toFixed(
+              )}px, ${ft.dy.toFixed(1)}px, 0) rotate(${ft.rotZ.toFixed(
                 1
-              )}deg) rotateY(${ft.rotY.toFixed(1)}deg) rotateZ(${ft.rotZ.toFixed(
-                1
-              )}deg) scale(${ft.scale.toFixed(3)})`;
-              node.style.filter =
-                ft.blurPx > 0.2 ? `blur(${ft.blurPx.toFixed(1)}px)` : 'none';
+              )}deg) scale(${scaleX}, ${scaleY})`;
             }
           }
         }
@@ -259,13 +394,11 @@ export class NavigationAnimationController {
     if (
       prefersReducedMotion ||
       !this.shardEls.length ||
-      event.navReaction === 'none'
+      event.navReaction === 'none' ||
+      event.timestamp >= 40.4
     ) {
       return;
     }
-
-    // Only apply GSAP impact jolts while the boxes are still intact or in initial cracking (< 40.5s)
-    if (event.timestamp >= 40.5) return;
 
     const isStrong = event.navReaction === 'jolt-strong';
     const maxOffset = isStrong ? 9 : 4.5;
@@ -285,7 +418,7 @@ export class NavigationAnimationController {
           x: 0,
           y: 0,
           rotation: 0,
-          duration: 0.48,
+          duration: 0.45,
           ease: 'back.out(2)',
           clearProps: 'transform',
         }
@@ -295,8 +428,9 @@ export class NavigationAnimationController {
 }
 
 /**
- * 6. ParticleController, SmokeController & DebrisController
- * High-performance Canvas 2D particle engines synchronized with video state.
+ * 6. AtmosphericCanvasController
+ * Optimized with pre-rendered offscreen smoke sprite (zero per-frame createRadialGradient calls)
+ * and adaptive particle counts based on device hardware concurrency.
  */
 interface CanvasParticle {
   x: number;
@@ -325,17 +459,46 @@ interface DebrisChunk {
   size: number;
   rotation: number;
   vRot: number;
-  sides: number;
+  unitPoints: Array<[number, number]>;
 }
 
 export class AtmosphericCanvasController {
   private particles: CanvasParticle[] = [];
   private smokePuffs: SmokePuff[] = [];
   private debrisChunks: DebrisChunk[] = [];
+  private smokeSpriteCanvas: HTMLCanvasElement | null = null;
   private initialized = false;
 
+  private createSmokeSprite() {
+    if (typeof document === 'undefined') return;
+    const sprite = document.createElement('canvas');
+    sprite.width = 128;
+    sprite.height = 128;
+    const sCtx = sprite.getContext('2d');
+    if (sCtx) {
+      const grad = sCtx.createRadialGradient(64, 64, 6, 64, 64, 64);
+      grad.addColorStop(0, 'rgba(154, 52, 18, 0.42)');
+      grad.addColorStop(0.55, 'rgba(69, 20, 14, 0.22)');
+      grad.addColorStop(1, 'rgba(7, 7, 9, 0)');
+      sCtx.fillStyle = grad;
+      sCtx.fillRect(0, 0, 128, 128);
+    }
+    this.smokeSpriteCanvas = sprite;
+  }
+
   public init(width: number, height: number) {
-    this.particles = Array.from({ length: 75 }, (_, i) => ({
+    const isLowPowerDevice =
+      typeof navigator !== 'undefined' &&
+      navigator.hardwareConcurrency &&
+      navigator.hardwareConcurrency <= 4;
+
+    const particleCount = isLowPowerDevice ? 38 : 60;
+    const smokeCount = isLowPowerDevice ? 9 : 14;
+    const debrisCount = isLowPowerDevice ? 12 : 18;
+
+    this.createSmokeSprite();
+
+    this.particles = Array.from({ length: particleCount }, (_, i) => ({
       x: (Math.sin(i * 17.3) * 0.5 + 0.5) * width,
       y: (Math.cos(i * 31.7) * 0.5 + 0.5) * height,
       vx: (i % 2 === 0 ? 1 : -1) * (0.25 + (i % 5) * 0.12),
@@ -345,25 +508,33 @@ export class AtmosphericCanvasController {
       type: i % 3 === 0 ? 'spark' : i % 2 === 0 ? 'ash' : 'dust',
     }));
 
-    this.smokePuffs = Array.from({ length: 18 }, (_, i) => ({
-      x: (i / 18) * width,
+    this.smokePuffs = Array.from({ length: smokeCount }, (_, i) => ({
+      x: (i / smokeCount) * width,
       y: height * (0.55 + (i % 4) * 0.12),
       vx: 0.35 + (i % 3) * 0.25,
       vy: -0.2 - (i % 3) * 0.1,
-      radius: 110 + (i % 5) * 45,
-      alpha: 0.12 + (i % 4) * 0.05,
+      radius: 120 + (i % 5) * 45,
+      alpha: 0.14 + (i % 4) * 0.05,
     }));
 
-    this.debrisChunks = Array.from({ length: 22 }, (_, i) => ({
-      x: ((i * 73) % 100) * 0.01 * width,
-      y: ((i * 41) % 100) * 0.01 * height,
-      vx: (i % 2 === 0 ? 1 : -1) * (0.8 + (i % 4) * 0.5),
-      vy: 2.2 + (i % 5) * 1.1,
-      size: 6 + (i % 4) * 5,
-      rotation: i * 0.5,
-      vRot: (i % 2 === 0 ? 1 : -1) * 0.04,
-      sides: 5 + (i % 3),
-    }));
+    this.debrisChunks = Array.from({ length: debrisCount }, (_, i) => {
+      const sides = 5 + (i % 3);
+      const unitPoints: Array<[number, number]> = [];
+      for (let s = 0; s < sides; s++) {
+        const theta = (s / sides) * Math.PI * 2;
+        unitPoints.push([Math.cos(theta), Math.sin(theta) * 0.72]);
+      }
+      return {
+        x: ((i * 73) % 100) * 0.01 * width,
+        y: ((i * 41) % 100) * 0.01 * height,
+        vx: (i % 2 === 0 ? 1 : -1) * (0.8 + (i % 4) * 0.5),
+        vy: 2.2 + (i % 5) * 1.1,
+        size: 6 + (i % 4) * 5,
+        rotation: i * 0.5,
+        vRot: (i % 2 === 0 ? 1 : -1) * 0.04,
+        unitPoints,
+      };
+    });
 
     this.initialized = true;
   }
@@ -380,36 +551,32 @@ export class AtmosphericCanvasController {
 
     ctx.clearRect(0, 0, width, height);
 
+    // 1. Pre-rendered Smoke Sprite blitting (fast GPU texture drawImage)
     const smokeDensity = state.smoke.density;
-    if (smokeDensity > 0.02) {
-      for (const puff of this.smokePuffs) {
+    if (smokeDensity > 0.02 && this.smokeSpriteCanvas) {
+      for (let i = 0; i < this.smokePuffs.length; i++) {
+        const puff = this.smokePuffs[i];
         puff.x += puff.vx * state.smoke.speed;
         puff.y += puff.vy * state.smoke.speed;
         if (puff.x - puff.radius > width) puff.x = -puff.radius;
         if (puff.y + puff.radius < 0) puff.y = height + puff.radius * 0.5;
 
-        const grad = ctx.createRadialGradient(
-          puff.x,
-          puff.y,
-          puff.radius * 0.1,
-          puff.x,
-          puff.y,
-          puff.radius
+        ctx.globalAlpha = Math.min(0.88, puff.alpha * smokeDensity * 2.2);
+        const diam = puff.radius * 2;
+        ctx.drawImage(
+          this.smokeSpriteCanvas,
+          puff.x - puff.radius,
+          puff.y - puff.radius,
+          diam,
+          diam
         );
-        grad.addColorStop(0, state.smoke.color);
-        grad.addColorStop(1, 'rgba(7, 7, 9, 0)');
-        ctx.save();
-        ctx.globalAlpha = Math.min(0.9, puff.alpha * smokeDensity * 2.2);
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.arc(puff.x, puff.y, puff.radius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
       }
     }
 
+    // 2. Particle layer
     const { dustDensity, sparksDensity, ashDensity, color } = state.particles;
-    for (const p of this.particles) {
+    for (let i = 0; i < this.particles.length; i++) {
+      const p = this.particles[i];
       const typeWeight =
         p.type === 'spark'
           ? sparksDensity
@@ -424,24 +591,21 @@ export class AtmosphericCanvasController {
       if (p.x < -10) p.x = width + 10;
       if (p.x > width + 10) p.x = -10;
 
-      ctx.save();
       ctx.globalAlpha = Math.min(0.95, p.alpha * typeWeight);
       ctx.fillStyle = p.type === 'spark' ? '#fef08a' : color;
-      ctx.beginPath();
-      ctx.arc(
-        p.x,
-        p.y,
-        p.size * (p.type === 'spark' ? 1.25 : 1),
-        0,
-        Math.PI * 2
-      );
-      ctx.fill();
-      ctx.restore();
+      const r = p.size * (p.type === 'spark' ? 1.25 : 1);
+      ctx.fillRect(p.x - r, p.y - r, r * 2, r * 2);
     }
 
+    // 3. Debris layer (using pre-computed unit polygon vertices)
     const debrisDensity = state.debris.density;
     if (debrisDensity > 0.05) {
       const activeCount = Math.floor(this.debrisChunks.length * debrisDensity);
+      ctx.fillStyle = '#271c19';
+      ctx.strokeStyle = 'rgba(234, 88, 12, 0.45)';
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = Math.min(0.85, debrisDensity * 0.8);
+
       for (let i = 0; i < activeCount; i++) {
         const d = this.debrisChunks[i];
         d.x += d.vx;
@@ -459,16 +623,12 @@ export class AtmosphericCanvasController {
         ctx.save();
         ctx.translate(d.x, d.y);
         ctx.rotate(d.rotation);
-        ctx.globalAlpha = Math.min(0.85, debrisDensity * 0.8);
-        ctx.fillStyle = '#271c19';
-        ctx.strokeStyle = 'rgba(234, 88, 12, 0.45)';
-        ctx.lineWidth = 1;
         ctx.beginPath();
         const r = d.size * state.debris.scale;
-        for (let s = 0; s < d.sides; s++) {
-          const theta = (s / d.sides) * Math.PI * 2;
-          const px = Math.cos(theta) * r;
-          const py = Math.sin(theta) * r * 0.72;
+        const pts = d.unitPoints;
+        for (let s = 0; s < pts.length; s++) {
+          const px = pts[s][0] * r;
+          const py = pts[s][1] * r;
           if (s === 0) ctx.moveTo(px, py);
           else ctx.lineTo(px, py);
         }
@@ -479,20 +639,21 @@ export class AtmosphericCanvasController {
       }
     }
 
+    // 4. Final smoke transition curtain (81.2s -> 84.4s)
     if (state.smoke.endTransitionOpacity > 0.01) {
-      ctx.save();
+      ctx.globalAlpha = 1;
       ctx.fillStyle = `rgba(7, 7, 9, ${(
         state.smoke.endTransitionOpacity * 0.92
       ).toFixed(3)})`;
       ctx.fillRect(0, 0, width, height);
-      ctx.restore();
     }
   }
 }
 
 /**
  * 7. VideoTimelineController
- * Master clock orchestrator tying HTML5 Video playback, rAF loop, seeking, and all sub-controllers together.
+ * Single centralized rAF animation scheduler coordinating video playback, DOM/SVG controllers,
+ * physical navigation fragmentation, and the atmospheric 2D canvas without React re-renders.
  */
 export class VideoTimelineController {
   public lighting = new LightingController();
@@ -500,34 +661,59 @@ export class VideoTimelineController {
   public lightning = new LightningController();
   public cracks = new CrackController();
   public navigation = new NavigationAnimationController();
+  public atmosphere = new AtmosphericCanvasController();
   public impactTracker = new ImpactTriggerTracker();
 
   private videoEl: HTMLVideoElement | null = null;
+  private stageEl: HTMLElement | null = null;
+  private canvasEl: HTMLCanvasElement | null = null;
+  private canvasCtx: CanvasRenderingContext2D | null = null;
   private rafId: number | null = null;
   private prefersReducedMotion = false;
-  private onStateSnapshot?: (state: ComputedCinematicState) => void;
-  private lastUiDispatchTime = -1;
+  private lastPhaseId = '';
+
+  public attachStageAndCanvas(
+    stageEl: HTMLElement | null,
+    canvasEl: HTMLCanvasElement | null
+  ) {
+    this.stageEl = stageEl;
+    this.canvasEl = canvasEl;
+    this.canvasCtx = canvasEl ? canvasEl.getContext('2d') : null;
+  }
 
   public attachVideo(
     videoEl: HTMLVideoElement | null,
-    prefersReducedMotion: boolean,
-    onStateSnapshot?: (state: ComputedCinematicState) => void
+    prefersReducedMotion: boolean
   ) {
     this.videoEl = videoEl;
     this.prefersReducedMotion = prefersReducedMotion;
-    this.onStateSnapshot = onStateSnapshot;
   }
 
-  public syncFrame = (forceUiUpdate = false): ComputedCinematicState | null => {
+  public syncFrame = (): ComputedCinematicState | null => {
     if (!this.videoEl) return null;
     const currentTime = this.videoEl.currentTime || 0;
     const state = computeCinematicState(currentTime, this.prefersReducedMotion);
 
-    // Update all DOM/SVG/Fragment controllers at 60fps without React re-renders
+    if (this.stageEl && state.phaseId !== this.lastPhaseId) {
+      this.lastPhaseId = state.phaseId;
+      this.stageEl.setAttribute('data-phase', state.phaseId);
+    }
+
+    // Update all DOM/SVG/Fragment controllers in one pass
     this.lighting.update(state);
     this.lightning.update(state);
     this.cracks.update(state);
     this.navigation.update(state);
+
+    // Render atmospheric canvas in the same unified rAF tick
+    if (this.canvasEl && this.canvasCtx) {
+      this.atmosphere.render(
+        this.canvasCtx,
+        this.canvasEl.width,
+        this.canvasEl.height,
+        state
+      );
+    }
 
     // Check discrete impact triggers
     const impact = this.impactTracker.checkTrigger(currentTime);
@@ -536,23 +722,18 @@ export class VideoTimelineController {
       this.navigation.triggerShardReaction(impact, this.prefersReducedMotion);
     }
 
-    // Throttle React state snapshots
-    if (
-      this.onStateSnapshot &&
-      (forceUiUpdate || Math.abs(currentTime - this.lastUiDispatchTime) >= 0.12)
-    ) {
-      this.lastUiDispatchTime = currentTime;
-      this.onStateSnapshot(state);
-    }
-
     return state;
   };
 
   public startLoop() {
     this.stopLoop();
     const tick = () => {
-      this.syncFrame(false);
-      this.rafId = requestAnimationFrame(tick);
+      if (this.videoEl && !this.videoEl.paused && !this.videoEl.ended) {
+        this.syncFrame();
+        this.rafId = requestAnimationFrame(tick);
+      } else {
+        this.rafId = null;
+      }
     };
     this.rafId = requestAnimationFrame(tick);
   }
@@ -569,13 +750,15 @@ export class VideoTimelineController {
     this.videoEl.currentTime = targetTime;
     this.impactTracker.resetForSeek(targetTime);
     this.screenShake.reset();
-    this.syncFrame(true);
+    this.navigation.resetCacheFlags();
+    this.syncFrame();
   }
 
   public resetAll() {
     this.stopLoop();
     this.impactTracker.resetAll();
     this.screenShake.reset();
-    this.lastUiDispatchTime = -1;
+    this.navigation.resetCacheFlags();
+    this.lastPhaseId = '';
   }
 }

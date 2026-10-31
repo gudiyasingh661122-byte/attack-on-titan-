@@ -35,14 +35,14 @@ test('Stage A (37.0s - 40.3s): Cracks spread across intact navigation boxes with
   assert.equal(boxLate.intactBoxOpacity, 1);
 });
 
-test('Stage B (41.5s): Boxes physically break into 22 irregular fragments and original box disappears', () => {
+test('Stage B (41.5s): Boxes physically break into 14 irregular fragments and original box disappears', () => {
   const stateBreak = computeCinematicState(41.5);
   for (const box of stateBreak.navigation.boxes) {
     assert.equal(box.intactBoxOpacity, 0, 'Original box must disappear during fragmentation');
     assert.equal(box.fragmentsVisible, true);
-    assert.equal(box.fragments.length, 22);
+    assert.equal(box.fragments.length, 14);
     const activeCount = box.fragments.filter((f) => f.opacity > 0).length;
-    assert.equal(activeCount, 22);
+    assert.equal(activeCount, 14);
   }
 });
 

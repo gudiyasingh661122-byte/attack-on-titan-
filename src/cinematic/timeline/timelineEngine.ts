@@ -20,12 +20,12 @@ export interface NavFragmentSpec {
   id: string;
   index: number;
   clipPath: string;
-  svgPoints: string; // 0..100 coordinate space for SVG border/crack rendering
+  svgPoints: string;
   centroidX: number; // 0..100%
   centroidY: number; // 0..100%
   sizeTier: FragmentSizeTier;
   isSplinter: boolean;
-  breakDelaySec: number; // offset after box breakStartTime (0..0.9s)
+  breakDelaySec: number; // offset after box breakStartTime
   fallDurationSec: number; // total lifetime before full disappearance
   vx: number; // px/sec horizontal blast drift
   vy0: number; // px/sec initial downward velocity
@@ -85,213 +85,140 @@ export interface ComputedCinematicState {
 }
 
 /**
- * 16 irregular, organic polygonal shards that tessellate 100% of a navigation box (0..100 x 0..100)
- * plus 6 fine paper/stone splinters along the fracture seams = 22 fragments per navigation box.
+ * 10 organic, irregular polygonal shards that seamlessly tessellate 100% of a navigation box (0..100 x 0..100)
+ * plus 4 fine paper-like fracture splinters along the seams = 14 high-impact fragments per box (70 total across 5 boxes).
+ * Preserves detailed, non-grid physical shattering while cutting DOM layer overhead by ~36%.
  */
 const BASE_TESSELLATION_POLYGONS: Array<{
   points: Array<[number, number]>;
   tier: FragmentSizeTier;
   isSplinter?: boolean;
 }> = [
-  // Top-left cluster
+  // Top row irregular polygons (5 shards covering y: 0..48)
   {
     points: [
       [0, 0],
-      [19, 0],
-      [14, 34],
-      [0, 28],
+      [22, 0],
+      [16, 46],
+      [0, 38],
     ],
     tier: 'small',
   },
   {
     points: [
-      [19, 0],
-      [41, 0],
-      [35, 29],
-      [14, 34],
-    ],
-    tier: 'medium',
-  },
-  // Top-center & right cluster
-  {
-    points: [
-      [41, 0],
-      [64, 0],
-      [58, 36],
-      [35, 29],
+      [22, 0],
+      [46, 0],
+      [39, 52],
+      [16, 46],
     ],
     tier: 'large',
   },
   {
     points: [
-      [64, 0],
-      [83, 0],
-      [78, 31],
-      [58, 36],
+      [46, 0],
+      [68, 0],
+      [62, 44],
+      [39, 52],
+    ],
+    tier: 'medium',
+  },
+  {
+    points: [
+      [68, 0],
+      [86, 0],
+      [81, 49],
+      [62, 44],
     ],
     tier: 'small',
   },
   {
     points: [
-      [83, 0],
+      [86, 0],
       [100, 0],
-      [100, 38],
-      [78, 31],
+      [100, 44],
+      [81, 49],
     ],
-    tier: 'medium',
+    tier: 'tiny',
   },
-  // Middle band irregular polygons
+  // Bottom row irregular polygons (5 shards covering y: 38..100)
   {
     points: [
-      [0, 28],
-      [14, 34],
-      [22, 68],
-      [0, 72],
-    ],
-    tier: 'medium',
-  },
-  {
-    points: [
-      [14, 34],
-      [35, 29],
-      [44, 62],
-      [22, 68],
-    ],
-    tier: 'large',
-  },
-  {
-    points: [
-      [35, 29],
-      [58, 36],
-      [52, 71],
-      [44, 62],
-    ],
-    tier: 'small',
-  },
-  {
-    points: [
-      [58, 36],
-      [78, 31],
-      [73, 66],
-      [52, 71],
-    ],
-    tier: 'large',
-  },
-  {
-    points: [
-      [78, 31],
-      [100, 38],
-      [100, 74],
-      [73, 66],
-    ],
-    tier: 'medium',
-  },
-  // Bottom band irregular polygons
-  {
-    points: [
-      [0, 72],
-      [22, 68],
-      [17, 100],
+      [0, 38],
+      [16, 46],
+      [24, 100],
       [0, 100],
     ],
-    tier: 'tiny',
-  },
-  {
-    points: [
-      [22, 68],
-      [44, 62],
-      [39, 100],
-      [17, 100],
-    ],
     tier: 'medium',
   },
   {
     points: [
-      [44, 62],
-      [52, 71],
-      [63, 100],
-      [39, 100],
-    ],
-    tier: 'small',
-  },
-  {
-    points: [
-      [52, 71],
-      [73, 66],
-      [84, 100],
-      [63, 100],
+      [16, 46],
+      [39, 52],
+      [48, 100],
+      [24, 100],
     ],
     tier: 'large',
   },
   {
     points: [
-      [73, 66],
-      [100, 74],
+      [39, 52],
+      [62, 44],
+      [71, 100],
+      [48, 100],
+    ],
+    tier: 'large',
+  },
+  {
+    points: [
+      [62, 44],
+      [81, 49],
+      [88, 100],
+      [71, 100],
+    ],
+    tier: 'medium',
+  },
+  {
+    points: [
+      [81, 49],
+      [100, 44],
       [100, 100],
-      [84, 100],
+      [88, 100],
     ],
-    tier: 'tiny',
+    tier: 'small',
   },
-  // Fine paper-like internal fracture splinters (tiny fast-falling shards)
+  // 4 fine paper-like internal fracture splinters (tiny fast-falling shards)
   {
     points: [
-      [12, 24],
-      [24, 18],
-      [20, 42],
-    ],
-    tier: 'tiny',
-    isSplinter: true,
-  },
-  {
-    points: [
-      [33, 22],
-      [46, 31],
-      [37, 48],
+      [14, 28],
+      [27, 22],
+      [21, 54],
     ],
     tier: 'tiny',
     isSplinter: true,
   },
   {
     points: [
-      [54, 28],
-      [67, 24],
-      [61, 49],
+      [36, 32],
+      [51, 26],
+      [43, 60],
     ],
     tier: 'tiny',
     isSplinter: true,
   },
   {
     points: [
-      [74, 26],
-      [88, 35],
-      [79, 52],
+      [58, 28],
+      [73, 36],
+      [64, 62],
     ],
     tier: 'tiny',
     isSplinter: true,
   },
   {
     points: [
-      [26, 58],
-      [39, 54],
-      [33, 79],
-    ],
-    tier: 'tiny',
-    isSplinter: true,
-  },
-  {
-    points: [
-      [49, 56],
-      [64, 63],
-      [55, 82],
-    ],
-    tier: 'tiny',
-    isSplinter: true,
-  },
-  {
-    points: [
-      [69, 58],
-      [85, 64],
-      [76, 84],
+      [77, 30],
+      [92, 24],
+      [84, 58],
     ],
     tier: 'tiny',
     isSplinter: true,
@@ -301,7 +228,7 @@ const BASE_TESSELLATION_POLYGONS: Array<{
 const BOX_FRAGMENT_SPECS_CACHE: Map<number, NavFragmentSpec[]> = new Map();
 
 /**
- * Generates deterministic irregular polygonal fragment definitions for a specific navigation box (0..4).
+ * Generates and caches deterministic irregular polygonal fragment definitions for a navigation box (0..4).
  */
 export function getNavBoxFragmentSpecs(boxIndex: number): NavFragmentSpec[] {
   const cached = BOX_FRAGMENT_SPECS_CACHE.get(boxIndex);
@@ -322,7 +249,6 @@ export function getNavBoxFragmentSpecs(boxIndex: number): NavFragmentSpec[] {
       .join(', ')})`;
     const svgPoints = poly.points.map(([px, py]) => `${px},${py}`).join(' ');
 
-    // Smaller fragments move faster and disappear sooner; larger fragments fall longer and fade later
     let fallDurationSec = 24;
     let vy0 = 42;
     let gravity = 22;
@@ -346,12 +272,11 @@ export function getNavBoxFragmentSpecs(boxIndex: number): NavFragmentSpec[] {
       gravity = 16.5 + Math.abs(sinSeed) * 6;
     }
 
-    // Horizontal explosion/blast drift away from box center + slight wind drift
-    const radialDirX = (cx - 50) / 50; // -1 to +1
+    const radialDirX = (cx - 50) / 50;
     const vx = radialDirX * (34 + Math.abs(sinSeed) * 28) + cosSeed * 18;
 
     const breakDelaySec =
-      Math.abs(sinSeed) * 0.45 + (poly.isSplinter ? 0.0 : 0.12);
+      Math.abs(sinSeed) * 0.42 + (poly.isSplinter ? 0.0 : 0.1);
 
     return {
       id: `box-${boxIndex}-frag-${idx}`,
@@ -379,12 +304,32 @@ export function getNavBoxFragmentSpecs(boxIndex: number): NavFragmentSpec[] {
   return specs;
 }
 
-// Staggered fracture & break start times for the 5 navigation boxes around the 37s-41.5s destruction sequence
 const BOX_CRACK_START_TIMES = [37.0, 37.2, 37.35, 37.15, 37.3];
 const BOX_BREAK_START_TIMES = [40.4, 40.75, 41.05, 40.6, 40.9];
 
+// Pre-allocated neutral fragment array for intact/cracking/dissolved states to avoid GC pressure at 60fps
+const ZERO_FRAGMENTS_CACHE: Map<number, ComputedFragmentTransform[]> = new Map();
+
+function getZeroFragments(count: number): ComputedFragmentTransform[] {
+  let cached = ZERO_FRAGMENTS_CACHE.get(count);
+  if (!cached) {
+    cached = Array.from({ length: count }, () => ({
+      opacity: 0,
+      dx: 0,
+      dy: 0,
+      rotX: 0,
+      rotY: 0,
+      rotZ: 0,
+      scale: 1,
+      blurPx: 0,
+    }));
+    ZERO_FRAGMENTS_CACHE.set(count, cached);
+  }
+  return cached;
+}
+
 /**
- * Computes the exact physical destruction state and all 22 fragment transforms for a given navigation box at `currentTime`.
+ * Computes the exact physical destruction state and fragment transforms for a navigation box at `currentTime`.
  */
 export function computeBoxDestructionState(
   boxIndex: number,
@@ -395,7 +340,7 @@ export function computeBoxDestructionState(
   const crackStart = BOX_CRACK_START_TIMES[boxIndex] ?? 37.0;
   const breakStart = BOX_BREAK_START_TIMES[boxIndex] ?? 40.6;
 
-  // 1. Before 37.0s: 100% Intact
+  // 1. Before 37.0s: 100% Intact (fast-path: zero per-fragment math or allocations)
   if (currentTime < crackStart) {
     return {
       boxIndex,
@@ -404,16 +349,7 @@ export function computeBoxDestructionState(
       intactBoxOpacity: 1,
       fragmentsVisible: false,
       crackTremorOffset: { x: 0, y: 0, rot: 0 },
-      fragments: specs.map(() => ({
-        opacity: 0,
-        dx: 0,
-        dy: 0,
-        rotX: 0,
-        rotY: 0,
-        rotZ: 0,
-        scale: 1,
-        blurPx: 0,
-      })),
+      fragments: getZeroFragments(specs.length),
     };
   }
 
@@ -436,29 +372,31 @@ export function computeBoxDestructionState(
         y: Math.cos(angle * 1.3) * tremorIntensity * 0.7,
         rot: Math.sin(angle * 0.8) * (tremorIntensity * 0.35),
       },
-      fragments: specs.map(() => ({
-        opacity: 0,
-        dx: 0,
-        dy: 0,
-        rotX: 0,
-        rotY: 0,
-        rotZ: 0,
-        scale: 1,
-        blurPx: 0,
-      })),
+      fragments: getZeroFragments(specs.length),
     };
   }
 
-  // 3. Stage B, C, D (>= ~40.6s): Fragmentation -> Falling -> Gradual Disappearance
-  // The intact box disappears immediately as the polygonal shards separate so NO intact box remains underneath!
+  // Fast-path after 80.5s: All fragments have completely dissolved
+  if (currentTime >= 80.5) {
+    return {
+      boxIndex,
+      stage: 'dissolved',
+      crackProgress: 1,
+      intactBoxOpacity: 0,
+      fragmentsVisible: false,
+      crackTremorOffset: { x: 0, y: 0, rot: 0 },
+      fragments: getZeroFragments(specs.length),
+    };
+  }
+
+  // 3. Stage B, C, D (~40.6s -> 80.5s): Fragmentation -> Falling -> Gradual Disappearance
   let anyVisible = false;
   const elapsedSinceBoxBreak = currentTime - breakStart;
+  const motionScale = prefersReducedMotion ? 0.35 : 1;
 
   const fragments: ComputedFragmentTransform[] = specs.map((spec) => {
     const t = elapsedSinceBoxBreak - spec.breakDelaySec;
 
-    // During the brief stagger window (0..breakDelaySec) before this specific shard detaches,
-    // it stays in place at (0,0) holding its slice of the box
     if (t <= 0) {
       anyVisible = true;
       return {
@@ -473,8 +411,8 @@ export function computeBoxDestructionState(
       };
     }
 
-    const lifeProgress = t / spec.fallDurationSec; // 0 -> 1
-    if (lifeProgress >= 1 || currentTime >= 80.5) {
+    const lifeProgress = t / spec.fallDurationSec;
+    if (lifeProgress >= 1) {
       return {
         opacity: 0,
         dx: 0,
@@ -483,23 +421,22 @@ export function computeBoxDestructionState(
         rotY: 0,
         rotZ: 0,
         scale: 0.4,
-        blurPx: 4,
+        blurPx: 0,
       };
     }
 
     anyVisible = true;
 
-    // Initial separation pop in the first 0.6s, followed by gravity fall + paper-like horizontal flutter
-    const separationPop = Math.min(1, t / 0.55);
-    const radialPushX = ((spec.centroidX - 50) / 50) * 14 * separationPop;
-    const radialPushY = ((spec.centroidY - 50) / 50) * 10 * separationPop;
+    const separationPop = t < 0.55 ? t / 0.55 : 1;
+    const radialPushX = ((spec.centroidX - 50) * 0.28) * separationPop;
+    const radialPushY = ((spec.centroidY - 50) * 0.2) * separationPop;
 
+    const flutterRamp = t < 1.2 ? t / 1.2 : 1;
     const flutter =
       Math.sin(t * spec.flutterFreq + spec.index) *
       spec.flutterAmp *
-      Math.min(1, t / 1.2);
+      flutterRamp;
 
-    const motionScale = prefersReducedMotion ? 0.35 : 1;
     const dx = (radialPushX + spec.vx * t + flutter) * motionScale;
     const dy =
       (radialPushY + spec.vy0 * t + 0.5 * spec.gravity * t * t) * motionScale;
@@ -508,22 +445,27 @@ export function computeBoxDestructionState(
     const rotY = spec.rotYSpeed * t * motionScale;
     const rotZ = spec.rotZSpeed * t * motionScale;
 
-    // Gradual shrinkage and dust-like opacity dissolve in the second half of its fall
-    const fadeStart = spec.sizeTier === 'tiny' ? 0.25 : spec.sizeTier === 'small' ? 0.35 : 0.45;
+    const fadeStart =
+      spec.sizeTier === 'tiny'
+        ? 0.25
+        : spec.sizeTier === 'small'
+        ? 0.35
+        : 0.45;
     const opacity =
       lifeProgress <= fadeStart
         ? 1
-        : Math.max(0, Math.pow(1 - (lifeProgress - fadeStart) / (1 - fadeStart), 1.45));
+        : Math.max(
+            0,
+            Math.pow(1 - (lifeProgress - fadeStart) / (1 - fadeStart), 1.45)
+          );
 
     const scale =
       lifeProgress <= 0.3
         ? 1
         : Math.max(
-            spec.sizeTier === 'tiny' ? 0.35 : 0.55,
-            1 - (lifeProgress - 0.3) * 0.55
+            spec.sizeTier === 'tiny' ? 0.32 : 0.52,
+            1 - (lifeProgress - 0.3) * 0.6
           );
-
-    const blurPx = lifeProgress > 0.65 ? (lifeProgress - 0.65) * 6 : 0;
 
     return {
       opacity,
@@ -533,7 +475,7 @@ export function computeBoxDestructionState(
       rotY,
       rotZ,
       scale,
-      blurPx,
+      blurPx: 0,
     };
   });
 
@@ -547,7 +489,7 @@ export function computeBoxDestructionState(
     boxIndex,
     stage,
     crackProgress: 1,
-    intactBoxOpacity: 0, // Original box is 100% replaced by its separating polygonal shards
+    intactBoxOpacity: 0,
     fragmentsVisible: anyVisible,
     crackTremorOffset: { x: 0, y: 0, rot: 0 },
     fragments,
@@ -570,7 +512,7 @@ export function getSegmentAtTime(currentTime: number): TimelineSubSegment {
 
 /**
  * Evaluates whether an impact event is currently active at `currentTime`
- * and computes exponentially decaying shake and flash intensity so screen shake is strictly temporary.
+ * and computes exponentially decaying shake and flash intensity.
  */
 export function evaluateActiveImpact(
   currentTime: number,
@@ -597,7 +539,7 @@ export function evaluateActiveImpact(
     const durationSec = ev.durationMs / 1000;
     const elapsed = currentTime - ev.timestamp;
     if (elapsed >= 0 && elapsed <= durationSec) {
-      const normalized = elapsed / durationSec; // 0 -> 1
+      const normalized = elapsed / durationSec;
       const decayFactor = Math.pow(1 - normalized, 2.2);
       const amplitudePx = ev.shakeIntensity * 14 * decayFactor;
       const angle = elapsed * 95;
@@ -643,15 +585,12 @@ export function computeCinematicState(
 
   const impactEval = evaluateActiveImpact(clampedTime, prefersReducedMotion);
 
-  // Compute physical destruction states for all 5 navigation boxes
   const boxes = [0, 1, 2, 3, 4].map((idx) =>
     computeBoxDestructionState(idx, clampedTime, prefersReducedMotion)
   );
 
-  // Overall navigation destruction stage summary
   const destructionStage: NavDestructionStage = boxes[0].stage;
 
-  // Final smoke transition ramp between 81.2s and 84.4s
   const isEndingTransition = clampedTime >= 81.2;
   const endTransitionOpacity = isEndingTransition
     ? Math.min(1, Math.max(0, (clampedTime - 81.2) / (VIDEO_DURATION - 81.2)))

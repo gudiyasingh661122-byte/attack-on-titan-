@@ -1,56 +1,44 @@
-import React, { useEffect, useRef } from 'react';
-import { AtmosphericCanvasController } from '../controllers/EffectControllers';
-import { computeCinematicState } from '../timeline/timelineEngine';
+import React, { useEffect } from 'react';
+import { VideoTimelineController } from '../controllers/EffectControllers';
 
 interface AtmosphericCanvasLayerProps {
-  videoRef: React.RefObject<HTMLVideoElement | null>;
-  prefersReducedMotion: boolean;
+  canvasRef: React.RefObject<HTMLCanvasElement | null>;
+  controllerRef: React.RefObject<VideoTimelineController>;
 }
 
+/**
+ * Lightweight canvas surface bound to the single centralized VideoTimelineController scheduler.
+ * Does not run a duplicate requestAnimationFrame loop.
+ */
 export const AtmosphericCanvasLayer: React.FC<AtmosphericCanvasLayerProps> = ({
-  videoRef,
-  prefersReducedMotion,
+  canvasRef,
+  controllerRef,
 }) => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const controllerRef = useRef<AtmosphericCanvasController>(new AtmosphericCanvasController());
-
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
 
     const handleResize = () => {
       if (!canvas) return;
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
-      controllerRef.current.init(canvas.width, canvas.height);
+      controllerRef.current.atmosphere.init(canvas.width, canvas.height);
+      controllerRef.current.syncFrame();
     };
 
     handleResize();
-    window.addEventListener('resize', handleResize);
-
-    let rafId: number;
-    const renderLoop = () => {
-      const currentTime = videoRef.current?.currentTime ?? 0;
-      const state = computeCinematicState(currentTime, prefersReducedMotion);
-      controllerRef.current.render(ctx, canvas.width, canvas.height, state);
-      rafId = requestAnimationFrame(renderLoop);
-    };
-
-    rafId = requestAnimationFrame(renderLoop);
+    window.addEventListener('resize', handleResize, { passive: true });
 
     return () => {
       window.removeEventListener('resize', handleResize);
-      cancelAnimationFrame(rafId);
     };
-  }, [videoRef, prefersReducedMotion]);
+  }, [canvasRef, controllerRef]);
 
   return (
     <canvas
       ref={canvasRef}
       aria-hidden="true"
-      className="pointer-events-none absolute inset-0 z-20 h-full w-full"
+      className="pointer-events-none fixed inset-0 z-20 h-full w-full"
     />
   );
 };

@@ -1,5 +1,6 @@
 import React, {
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useRef,
@@ -7,10 +8,6 @@ import React, {
 } from 'react';
 import { Volume2, VolumeX, ArrowRight, RotateCcw } from 'lucide-react';
 import { VIDEO_DURATION, VIDEO_SRC } from '../../data/timelineEvents';
-import {
-  computeCinematicState,
-  ComputedCinematicState,
-} from '../../cinematic/timeline/timelineEngine';
 import { VideoTimelineController } from '../../cinematic/controllers/EffectControllers';
 import { AtmosphericCanvasLayer } from '../../cinematic/effects/AtmosphericCanvasLayer';
 import { SvgEffectsOverlay } from '../../cinematic/effects/SvgEffectsOverlay';
@@ -49,68 +46,72 @@ export const CinematicVideoExperience = forwardRef<
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const videoWrapperRef = useRef<HTMLDivElement | null>(null);
     const stageRef = useRef<HTMLDivElement | null>(null);
+    const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const ambientLightRef = useRef<HTMLDivElement | null>(null);
     const radialLightRef = useRef<HTMLDivElement | null>(null);
     const flashOverlayRef = useRef<HTMLDivElement | null>(null);
     const lightningGroupRef = useRef<SVGGElement | null>(null);
     const pathsGroupRef = useRef<SVGGElement | null>(null);
     const crackGroupRef = useRef<SVGGElement | null>(null);
-    const navContainerRef = useRef<HTMLDivElement | null>(null);
+    const navContainerRef = useRef<HTMLElement | null>(null);
     const navShardRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-    const controllerRef = useRef<VideoTimelineController>(new VideoTimelineController());
+    const controllerRef = useRef<VideoTimelineController>(
+      new VideoTimelineController()
+    );
     const retryCountRef = useRef<number>(0);
     const controlsTimeoutRef = useRef<number | null>(null);
 
-    const [cinematicState, setCinematicState] = useState<ComputedCinematicState>(() =>
-      computeCinematicState(initialStartTime, prefersReducedMotion)
-    );
     const [isBuffering, setIsBuffering] = useState<boolean>(false);
     const [needsManualRetry, setNeedsManualRetry] = useState<boolean>(false);
     const [isTransitioningOut, setIsTransitioningOut] = useState<boolean>(false);
     const [controlsVisible, setControlsVisible] = useState<boolean>(true);
 
-    const startSynchronizedPlayback = (targetSeconds?: number) => {
-      const video = videoRef.current;
-      const controller = controllerRef.current;
-      if (!video) return;
+    const startSynchronizedPlayback = useCallback(
+      (targetSeconds?: number) => {
+        const video = videoRef.current;
+        const controller = controllerRef.current;
+        if (!video) return;
 
-      setNeedsManualRetry(false);
-      setIsTransitioningOut(false);
+        setNeedsManualRetry(false);
+        setIsTransitioningOut(false);
 
-      if (typeof targetSeconds === 'number' && !Number.isNaN(targetSeconds)) {
-        const clamped = Math.max(0, Math.min(targetSeconds, VIDEO_DURATION - 0.2));
-        try {
-          video.currentTime = clamped;
-        } catch {
-          // Metadata not yet loaded; handled in onLoadedMetadata
+        if (typeof targetSeconds === 'number' && !Number.isNaN(targetSeconds)) {
+          const clamped = Math.max(0, Math.min(targetSeconds, VIDEO_DURATION - 0.2));
+          try {
+            video.currentTime = clamped;
+          } catch {
+            // Metadata not yet loaded; handled in onLoadedMetadata
+          }
+          controller.handleSeek(clamped);
+        } else {
+          controller.syncFrame();
         }
-        controller.handleSeek(clamped);
-      }
 
-      video.muted = isMuted;
-      const playPromise = video.play();
-      if (playPromise !== undefined) {
-        playPromise
-          .then(() => {
-            setIsBuffering(false);
-            controller.startLoop();
-          })
-          .catch(() => {
-            // Browser policy fallback: start muted if unmuted autoplay was blocked
-            video.muted = true;
-            video
-              .play()
-              .then(() => {
-                setIsBuffering(false);
-                controller.startLoop();
-              })
-              .catch(() => {
-                setNeedsManualRetry(true);
-              });
-          });
-      }
-    };
+        video.muted = isMuted;
+        const playPromise = video.play();
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => {
+              setIsBuffering(false);
+              controller.startLoop();
+            })
+            .catch(() => {
+              video.muted = true;
+              video
+                .play()
+                .then(() => {
+                  setIsBuffering(false);
+                  controller.startLoop();
+                })
+                .catch(() => {
+                  setNeedsManualRetry(true);
+                });
+            });
+        }
+      },
+      [isMuted]
+    );
 
     useImperativeHandle(ref, () => ({
       playFromTime: (startTimeSeconds = 0) => {
@@ -122,9 +123,10 @@ export const CinematicVideoExperience = forwardRef<
       },
     }));
 
-    // Bind effect controllers once
+    // Bind effect controllers and pre-cache DOM references once on mount
     useEffect(() => {
       const controller = controllerRef.current;
+      controller.attachStageAndCanvas(stageRef.current, canvasRef.current);
       controller.lighting.bind(
         ambientLightRef.current,
         radialLightRef.current,
@@ -137,13 +139,14 @@ export const CinematicVideoExperience = forwardRef<
       controller.navigation.bind(
         navContainerRef.current,
         navShardRefs.current.filter(
-          (Boolean as unknown) as (el: HTMLButtonElement | null) => el is HTMLButtonElement
+          (Boolean as unknown) as (
+            el: HTMLButtonElement | null
+          ) => el is HTMLButtonElement
         )
       );
 
-      controller.attachVideo(videoRef.current, prefersReducedMotion, (snapshot) => {
-        setCinematicState(snapshot);
-      });
+      controller.attachVideo(videoRef.current, prefersReducedMotion);
+      controller.syncFrame();
 
       return () => {
         controller.resetAll();
@@ -160,7 +163,7 @@ export const CinematicVideoExperience = forwardRef<
           videoRef.current.pause();
         }
       }
-    }, [isActive, initialStartTime]);
+    }, [isActive, initialStartTime, startSynchronizedPlayback]);
 
     // Sync mute state without restarting playback
     useEffect(() => {
@@ -174,7 +177,7 @@ export const CinematicVideoExperience = forwardRef<
       if (!isActive) return;
 
       const revealControls = () => {
-        setControlsVisible(true);
+        setControlsVisible((prev) => (prev ? prev : true));
         if (controlsTimeoutRef.current !== null) {
           window.clearTimeout(controlsTimeoutRef.current);
         }
@@ -198,32 +201,37 @@ export const CinematicVideoExperience = forwardRef<
       };
     }, [isActive]);
 
-    const handleSeek = (targetSeconds: number) => {
+    const handleSeek = useCallback((targetSeconds: number) => {
       const clamped = Math.max(0, Math.min(targetSeconds, VIDEO_DURATION - 0.1));
       controllerRef.current.handleSeek(clamped);
-    };
+    }, []);
 
-    const triggerGracefulExit = (targetSectionId?: string) => {
-      if (isTransitioningOut) return;
-      setIsTransitioningOut(true);
-      controllerRef.current.stopLoop();
-      if (videoRef.current) {
-        videoRef.current.pause();
-      }
-      window.setTimeout(() => {
-        onCompleteOrSkip(targetSectionId);
-      }, 750);
-    };
+    const triggerGracefulExit = useCallback(
+      (targetSectionId?: string) => {
+        if (isTransitioningOut) return;
+        setIsTransitioningOut(true);
+        controllerRef.current.stopLoop();
+        if (videoRef.current) {
+          videoRef.current.pause();
+        }
+        window.setTimeout(() => {
+          onCompleteOrSkip(targetSectionId);
+        }, 750);
+      },
+      [isTransitioningOut, onCompleteOrSkip]
+    );
 
-    const handleSelectNavItem = (item: NavItem) => {
-      triggerGracefulExit(item.sectionId);
-    };
+    const handleSelectNavItem = useCallback(
+      (item: NavItem) => {
+        triggerGracefulExit(item.sectionId);
+      },
+      [triggerGracefulExit]
+    );
 
     const handleVideoError = () => {
       const video = videoRef.current;
       if (!video || !isActive) return;
 
-      // Automatic silent recovery attempt before showing any fallback
       if (retryCountRef.current < 2) {
         retryCountRef.current += 1;
         const savedTime = video.currentTime || initialStartTime || 0;
@@ -240,7 +248,7 @@ export const CinematicVideoExperience = forwardRef<
       <div
         ref={stageRef}
         data-testid="cinematic-video-stage"
-        data-phase={cinematicState.phaseId}
+        data-phase="phase-1"
         aria-hidden={!isActive}
         className={`fixed inset-0 h-screen w-screen overflow-hidden bg-[#050507] select-none transition-opacity duration-700 ${
           !isActive || isTransitioningOut
@@ -248,16 +256,15 @@ export const CinematicVideoExperience = forwardRef<
             : 'opacity-100'
         }`}
       >
-        {/* Floating Stone/Obsidian World Navigation */}
+        {/* Floating Stone/Obsidian World Navigation (Memoized — Zero React Re-Renders During Playback) */}
         <FloatingNavigation
           containerRef={navContainerRef}
           shardRefs={navShardRefs}
-          cinematicState={cinematicState}
           onSelectNavItem={handleSelectNavItem}
           onSeekToPhase={handleSeek}
         />
 
-        {/* Full-Screen Viewport Video Layer (position: fixed, width: 100%, height: 100%, object-fit: cover) */}
+        {/* Full-Screen Viewport Video Layer */}
         <div
           ref={videoWrapperRef}
           className="fixed inset-0 z-10 h-full w-full overflow-hidden will-change-transform"
@@ -273,7 +280,7 @@ export const CinematicVideoExperience = forwardRef<
               if (initialStartTime > 0 && videoRef.current) {
                 videoRef.current.currentTime = initialStartTime;
               }
-              controllerRef.current.syncFrame(true);
+              controllerRef.current.syncFrame();
             }}
             onCanPlay={() => {
               setIsBuffering(false);
@@ -288,10 +295,16 @@ export const CinematicVideoExperience = forwardRef<
               setNeedsManualRetry(false);
               controllerRef.current.startLoop();
             }}
+            onPause={() => {
+              controllerRef.current.stopLoop();
+              controllerRef.current.syncFrame();
+            }}
             onSeeked={() => {
-              controllerRef.current.syncFrame(true);
+              controllerRef.current.navigation.resetCacheFlags();
+              controllerRef.current.syncFrame();
             }}
             onEnded={() => {
+              controllerRef.current.stopLoop();
               triggerGracefulExit('overview');
             }}
             onError={handleVideoError}
@@ -303,12 +316,12 @@ export const CinematicVideoExperience = forwardRef<
         <div
           ref={ambientLightRef}
           aria-hidden="true"
-          className="pointer-events-none fixed inset-0 z-15 transition-opacity duration-150"
+          className="pointer-events-none fixed inset-0 z-15"
         />
         <div
           ref={radialLightRef}
           aria-hidden="true"
-          className="pointer-events-none fixed inset-0 z-15 transition-transform duration-150"
+          className="pointer-events-none fixed inset-0 z-15"
         />
 
         {/* Layer 2: Impact Flash Overlay */}
@@ -326,23 +339,23 @@ export const CinematicVideoExperience = forwardRef<
           crackGroupRef={crackGroupRef}
         />
 
-        {/* Layer 4: High-Performance Canvas Particle, Smoke, and Debris Layer */}
+        {/* Layer 4: Unified Canvas Particle, Smoke, and Debris Layer */}
         <AtmosphericCanvasLayer
-          videoRef={videoRef}
-          prefersReducedMotion={prefersReducedMotion}
+          canvasRef={canvasRef}
+          controllerRef={controllerRef}
         />
 
-        {/* Minimal Atmospheric Buffering Pulse (No technical text) */}
+        {/* Minimal Atmospheric Buffering Pulse */}
         {isBuffering && !needsManualRetry && (
           <div
             aria-hidden="true"
             className="pointer-events-none fixed inset-0 z-30 flex items-center justify-center"
           >
-            <div className="h-12 w-12 rounded-full border border-[#D4AF37]/40 bg-[#050507]/40 backdrop-blur-xs" />
+            <div className="h-12 w-12 rounded-full border border-[#D4AF37]/40 bg-[#050507]/40" />
           </div>
         )}
 
-        {/* Clean Cinematic Fallback & Retry (Shown only if network recovery fails) */}
+        {/* Clean Cinematic Fallback & Retry */}
         {needsManualRetry && (
           <div className="fixed inset-0 z-40 flex flex-col items-center justify-center bg-[#050507]/85 px-6 text-center backdrop-blur-sm">
             <p className="font-display text-sm tracking-[0.28em] text-[#E6DFD3]">
@@ -371,17 +384,19 @@ export const CinematicVideoExperience = forwardRef<
           </div>
         )}
 
-        {/* Minimal Unobtrusive Floating Visitor Controls (Mute/Unmute & Skip Intro only) */}
+        {/* Minimal Unobtrusive Floating Visitor Controls */}
         <div
           className={`fixed bottom-7 right-7 z-30 flex items-center gap-3 transition-opacity duration-500 sm:bottom-9 sm:right-10 ${
-            controlsVisible ? 'opacity-90 hover:opacity-100' : 'opacity-0 focus-within:opacity-100'
+            controlsVisible
+              ? 'opacity-90 hover:opacity-100'
+              : 'opacity-0 focus-within:opacity-100'
           }`}
         >
           <button
             type="button"
             onClick={onToggleMute}
             aria-label={isMuted ? 'Unmute audio' : 'Mute audio'}
-            className="flex h-10 w-10 items-center justify-center border border-white/15 bg-[#070709]/65 text-[#E6DFD3] backdrop-blur-md transition-all duration-300 hover:border-[#D4AF37]/70 hover:text-[#FEF08A] focus-visible:outline-2 focus-visible:outline-[#D4AF37] cursor-pointer"
+            className="flex h-10 w-10 items-center justify-center border border-white/15 bg-[#070709]/75 text-[#E6DFD3] transition-all duration-300 hover:border-[#D4AF37]/70 hover:text-[#FEF08A] focus-visible:outline-2 focus-visible:outline-[#D4AF37] cursor-pointer"
           >
             {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
           </button>
@@ -389,7 +404,7 @@ export const CinematicVideoExperience = forwardRef<
           <button
             type="button"
             onClick={() => triggerGracefulExit('overview')}
-            className="group flex h-10 items-center gap-2.5 border border-white/15 bg-[#070709]/65 px-5 font-display text-[11px] font-semibold tracking-[0.22em] text-[#E6DFD3] backdrop-blur-md transition-all duration-300 hover:border-[#D4AF37]/70 hover:text-[#FEF08A] focus-visible:outline-2 focus-visible:outline-[#D4AF37] whitespace-nowrap shrink-0 cursor-pointer"
+            className="group flex h-10 items-center gap-2.5 border border-white/15 bg-[#070709]/75 px-5 font-display text-[11px] font-semibold tracking-[0.22em] text-[#E6DFD3] transition-all duration-300 hover:border-[#D4AF37]/70 hover:text-[#FEF08A] focus-visible:outline-2 focus-visible:outline-[#D4AF37] whitespace-nowrap shrink-0 cursor-pointer"
           >
             <span>SKIP INTRO</span>
             <ArrowRight className="h-3.5 w-3.5 text-[#D4AF37] transition-transform duration-300 group-hover:translate-x-0.5" />
